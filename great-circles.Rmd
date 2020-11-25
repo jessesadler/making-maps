@@ -1,0 +1,172 @@
+---
+title: "Creating great circles with sp and sf"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+Notes on creating great circle lines with `sp` and `sf`. The calculations for the coordinates for the great circles are done by [`geosphere`](https://cran.r-project.org/web/packages/geosphere/). This is an amalgamation of sp-gcircles, sf-linestring with tidy methods, and sf-linestring-alternative from the dvdm-correspondence project.
+
+The `sp` method with `gcIntermediate()` is the easiest of the three methods. The two `sf` methods are a bit more convoluted. The `sf` tidy method has to use `tidyr` functions of `gather()` and `spread()`, which can be a bit confusing, and the alternative method needs to make use of a for loop and lists.
+
+## Set up routes data
+The scripts to create `sp` `SpatialLinesDataFrame` and `sf` `LINESTRING` all derive from the same basic set up of a routes data frame.
+
+```{r load packages and data}
+library(tidyverse)
+library(sp)
+library(geosphere)
+library(sf)
+library(lwgeom)
+
+letters <- read_csv("data/dvdm-correspondence-1591.csv")
+locations <- read_csv("data/locations-1591.csv") %>% 
+  select(place:lat) # simplify locations data to only necessary variables
+```
+
+A routes data frame with an id column is the basis for creating spatial lines. The id column is not necessary for creating a `SpatialLinesDataFrame` or with `sf` alternative method, but it is necessary for creating `sf` objects through tidy methods. The data in the `Spatial` and `sf` objects will differ slightly.
+
+The `sp` method uses the `gcIntermediate()` function from the `geosphere` package. The `gcIntermediate()` function uses a spherical model of the earth and internally it is based on the `distCosine()` function. Thus, these calculations are not as exact as `distGeo()`. Beginning with [version 0.6](https://github.com/r-spatial/sf/blob/master/NEWS.md) of `sf`, the `st_segmentize()` function uses calculations provided by the [`lwgeom`](https://cran.r-project.org/web/packages/lwgeom/index.html) package. See [here](https://github.com/r-spatial/sf/blob/master/R/geom.R) for the R code that calls `lwgeom` with geometric unary operations and distance calculations. `st_segmentize` also uses a spherical model of the earth. You can see this in the code. `st_segmentize` calls `lwgeom::st_geod_segmentize`. In turn `lwgeom::st_geod_segmentize` is based on `CPL_geodetic_segmentize` from Rcpp code as seen [here](https://github.com/r-spatial/lwgeom/blob/master/src/geodetic.cpp). The code for `CPL_geodetic_segmentize` calls `lwgeom_segmentize_sphere`, which is defined in the C code in liblwgeom [here](https://github.com/r-spatial/lwgeom/blob/master/src/liblwgeom/lwgeodetic.c).
+
+The only difference between the implementation of `geosphere::gcIntermediate()` and `sf::st_segmentize()` is that `gcIntermediate()` calculates breaks based on the number of segments, while `st_segmentize()` uses a maximum distance argument for each segment. This means that whereas `gcIntermediate()` results in the same number of points along the great circle for each line irrespective of distance, while `st_segmentize()` creates segments of relatively equal distance but with the amount of points in a line varying by distance.
+
+```{r create routes, warning = FALSE}
+routes <- letters %>%
+  group_by(source, destination) %>% 
+  summarise() %>% 
+  drop_na() %>% # remove rows in which source or destination is unknown
+  ungroup() %>% 
+  rowid_to_column("id") # create id column with row numbers
+```
+
+## SpatialLinesDataFrame with geosphere
+The `gcIntermediate()` function takes in two sets of longitude and latitude coordinates. These can be either a data frame or a matrix. Other arguments include the number of intermediate points or line segments along which to draw the line, and whether to include the given coordinates in the result. You can also choose whether to have the object be of class `Spatial` or just be a `list` with the `sp` argument. The default is `sp = FALSE`.
+
+Here, I geocode the `routes` data through a `left_join()` with the `locations` data. I then select only the "lon" and "lat" columns to create the two columns of longitude and latitude data to go into the `gcIntermediate()` function.
+
+```{r sources and destinations tbls}
+sources_tbl <- routes %>% 
+  left_join(locations, by = c("source" = "place")) %>% 
+  select(lon:lat)
+
+destinations_tbl <- routes %>% 
+  left_join(locations, by = c("destination" = "place")) %>% 
+  select(lon:lat)
+```
+
+The `gcIntermediate()` function creates a `SpatialLines` object and provides it with a CRS of EPSG 4326 when the `sp` argument is set to `TRUE`. The function seems to be one of the easiest ways to create a `SpatialLines` object, and is definitely easier than with `SpatialLines()`. Fifty breaks is more than enough and actually leads to 52 points in each line with `addStartEnd = TRUE`. Using `gcIntermediate()` with `sp = TRUE` results in a `SpatialLines` object that is a great circle and can be plotted, though it does not possess any attribute data.
+
+```{r routes_sl}
+routes_sl <- gcIntermediate(sources_tbl, destinations_tbl, 50, addStartEnd = TRUE, sp = TRUE)
+```
+
+Can convert `SpatialLines` into `SpatialLinesDataFrame` by using the data from `routes` to provide the data slot. The default is `match.ID = TRUE`, but even with this set to `FALSE`, as long as the order of the data does not change, the rows will line up correctly.
+
+```{r routes_sldf}
+routes_sldf <- SpatialLinesDataFrame(routes_sl, data = routes)
+```
+
+The result of `SpatialLinesDataFrame()` is a complete `Spatial` object that contains a CRS, attribute data in the `data` slot, and great circle lines in the `lines` slot.
+
+## sf: two methods
+The difficult part for making great circle lines from coordinates with `sf` is going from longitude and latitude coordinates to `LINESTRING` geometry. Once you have a `sf` object with a `LINESTRING` geometry the conversion to great circle with `st_segmentize()` is straightforward.
+
+## sf linestring: tidy method
+This method derives from the realization of the problem of having source and destination in two different columns, leading to two different sets of location varibles in a single row. In `sf` this would result in two different geometry columns, but this is problematic. The solution is to use `tidyr` functions to transform the data into a longer form with two rows for each letter and a "type" column to denote whether the row refers to the source or destination. From this format it is then possible to turn the observations into `sfc_POINT` and from their into `sfc_LINESTRING` because of the way that `sf` fits into tidyverse workflows of `group_by()` and `summarise()`.
+
+First step is to put the `routes` data into a longer form and then add the geocoded data.
+
+```{r gather and geocode}
+routes_long <- routes %>% gather(key = "type", value = "place", -id)
+
+routes_geo <- left_join(routes_long, locations, by = "place")
+```
+
+It is then possible to turn this data frame into an `sf` object with `POINTS`.
+
+```{r routes_points}
+routes_points <- st_as_sf(routes_geo, coords = c("lon", "lat"), crs = 4326)
+```
+
+The key step to make linestrings is to `group_by()` and `summarise()` based on the id column and thus return the data frame to a wider format. The `do_union = FALSE` in the `summarise()` function keeps both points that are being summarized and so leads to the creation of a geometry that is `MULTIPOINT`. The `st_cast()` function then converts the points into a `LINESTRING` between the points.
+
+```{r routes_lines}
+routes_lines <- routes_points %>% 
+  group_by(id) %>% 
+  summarise(do_union = FALSE) %>% 
+  st_cast("LINESTRING")
+
+st_geometry(routes_lines)
+```
+
+The above pipeline results in dropping the names for the source and destination. We can get that back with a join to the original `routes` data.
+
+```{r join with routes data}
+routes_lines <- left_join(routes_lines, routes, by = "id")
+```
+
+Now that the geometry of the `sf` object is in the correct format of `LINESTRING`, creating a great circle is straight forward with `st_segmentize()`. The only decision is to decide the distance for each segment. The choice of distance of segment instead of number of segments as in `gcIntermediate()` is what differentiates the outcomes from these two methods.
+
+```{r great circles tidy}
+routes_sf_tidy <- routes_lines %>% st_segmentize(units::set_units(20, km))
+```
+
+## sf linestring: matrices and list of lines
+This alternative method for creating an `sf` object with geometry of `LINESTRING` derives from the method for creating an `sfg` `LINESTRING` from scratch using a matrix of coordinates, transforming it into a `sfc` object with a CRS, and then finally into a `sf` object with attribute data. However, this method does not scale, because you need separate matrices of coordinates for each line. Using a single matrix of the coordinates for the various routes would result in a single line. The best answer to this issue seems to be a for loop that results in a list of matrices that can each be converted to `LINESTRING` objects. Happliy, the list of `sfg` objects can be converted to a `sfc` object with `st_sfc()`. From there, the conversion to a `sf` object is just a matter of attaching the `routes` tibble to the `sfc_LINESTRING` object.
+
+The workflow for this method is based on the creation of a single line, which is then vectorized by a for loop. Creating a single line will help to show how this process works.
+
+```{r sfg_linestring, message = TRUE}
+# Create a line between the coordinates of Antwerp and Bremen
+source_coord <- c(4.4024643, 51.2194475)
+destination_coord <- c(8.8016936, 53.0792962)
+
+line_matrix <- rbind(source_coord, destination_coord)
+
+st_linestring(line_matrix)
+```
+
+The starting point for this method is similar to that for the `sp` method above. We can rerun the code above that created the `sources` and `destinations` tibbles of longitude and latitude coordinates, but in this case we need the coordinates on matrix form, whereas `gcIntermediate()` could use either data frames or matrices.
+
+```{r sources and destinations matrices}
+sources_m <- routes %>% 
+  left_join(locations, by = c("source" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+
+destinations_m <- routes %>% 
+  left_join(locations, by = c("destination" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+```
+
+The challenge is that we want to combine one row of coordinates from `sources_m` with one row of coordinates from `destinations_m` -- from the same row -- and then create a new matrix with two rows for the source coordinates and the destination coordinates. This can be done with a for loop, looping over a `rbind()` call. The output for the for loop will be a list of length of the number of routes or `nrow(routes)`. After binding the coordinates into a matrix, the for loop creates `LINESTRING` objects with `st_linestring()`.
+
+```{r for loop}
+linestrings_sfg <- vector("list", nrow(routes))
+
+for (i in 1:nrow(routes)) {
+  linestrings_sfg[[i]] <- st_linestring(rbind(sources_m[i, ], destinations_m[i, ]))
+}
+```
+
+We can check if this worked by looking at the contents of one value from the list with `[[]]` notation.
+
+```{r check linestring, message = TRUE}
+linestrings_sfg[[2]]
+```
+
+The next step is to create a `scf` object by transforming the list of `sfg` objects into a geometry column with `st_sfc()`. This also calls for adding a CRS. At this point, we can also turn the lines into great circles with `st_segmentize()` in the same manner as above.
+
+```{r linestrings_sfc}
+linestrings_sfc <- st_sfc(linestrings_sfg, crs = 4326) %>% 
+  st_segmentize(units::set_units(20, km))
+```
+
+The final step is to add the attribute data and convert the `sfc` object to a `sf` object with `st_sf()` and the `routes` data.
+
+```{r routes_sf}
+routes_sf <- st_sf(routes, geometry = linestrings_sfc)
+```

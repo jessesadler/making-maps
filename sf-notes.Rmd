@@ -1,0 +1,237 @@
+---
+title: "sf-notes"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message = FALSE}
+library(sf)
+```
+
+- Resources
+	- [sf vignettes](https://cran.rstudio.com/web/packages/sf/vignettes/sf1.html)
+	- [Lovelace, Nowosad, and Muenchow, Geocomputation with R – Chapter 2](https://geocompr.robinlovelace.net/spatial-class.html#vector-data)
+	- [Pebesma, Spatial Data in R: New Directions](https://edzer.github.io/UseR2017/)
+	- [Claudia Engel, Introduction to Spatial Data Types in R](https://cengel.github.io/rspatial/2_spDataTypes.nb.html#)
+
+## Simple Features
+- Simple Features: "A simple feature is defined by the OpenGIS Abstract specification to have both spatial and non-spatial attributes. Spatial attributes are geometry valued, and simple features are based on 2D geometry with linear interpolation between vertices."
+- All geometries are composed of points. Points are coordinates in a 2-, 3- or 4-dimensional space.
+- Feature: row in an sf object
+- Attributes: variables within the data frame beyond the geometry column
+
+## Classes used to represent simple features
+- sfg: geometry of an individual simple feature
+    - coordinates (value(s))
+    - dimensions (XY, XYZ, XYM, XYZM)
+        - Z coordinate: altitude
+        - M coordinate: measurement associated with the point, as opposed to the feature as a whole, which would make it an attribute
+    - geometry type
+- sfc: simple features collection, the list-column with the geometries for each feature (record)
+    - `sfc` object is a list of `sfg` objects
+    - Geometry type: can be any of the simple feature geometries or `GEOMETRY`, which indicates that there are more than one simple feature types within the simple features collection
+    - CRS to unify the geometries of the different features can be either EPSG and/or proj4string
+    - precision: "a double number that, when non-zero, causes some rounding during conversion to WKB, which might help certain geometrical operations succeed that would otherwise fail due to floating point representation."
+    - bbox: min and max of coordinates
+    - n_empty: number of empty `sfg` objects in the `sfc` set
+- sf: the table (data.frame) with feature attributes and a simple features collection (sfc) column
+
+## sfg class
+You can see in the methods for class `sfg` that there are no methods for CRS.
+```{r sfg_methods}
+methods(class = "sfg")
+```
+
+- Main Simple Features geometries
+	  - POINT
+	  - MULTIPOINT
+  	- LINESTRING
+	  - MULTILINESTRING
+	  - POLYGON
+	  - MULTIPOLYGON
+	  - GEOMETRYCOLLECTION
+
+- Simple feature geometries are implemented as R native data. They are not "spatial", because they do not contain a CRS.
+    - a single POINT is a numeric `vector`
+    - MULTIPOINT and LINESTRING are made by a matrix in which each row contains a point
+    - MULTILINESTRING and POLYGON are made of a list of matrices
+    - MULTIPOLYGON and others are made by list of lists of matrices
+
+To create an `sfg` object you use `st_point()`, `st_multipoint()`, `st_linestring()`, etc. The arguments to create an `sfg` object are just a vector, matrix, list, and dim argument for number of dimensions (either XY or XYZ). The basis for these functions is the creation of an sfg class. All sfg classes are founded upon the `getClassDim` function, which tells the dimension, type, and that it is "sfg". This provides what is printed to the console with `class(st_point_object)`. POINT is the simplest to create and uses `getClassDim` directly. The other simple feature geometries use more complex helper functions to ensure that the input is correct. For code to create a POINT in `st_point` is `structure(x, class = getClassDim(x, length(x), dim, "POINT"))`. The second argument of `length(x)` is used in `getClassDim` to provide the dimensions as 2, 3, or 4.
+
+```{r antwerp_sfg}
+# Create an sfg object with coordinates of Antwerp
+antwerp_sfg <- st_point(c(4.4024643, 51.2194475))
+bremen_sfg <- st_point(c(8.8016936, 53.0792962))
+
+# Printing the sfg object shows that it is a POINT with coordinates
+antwerp_sfg
+
+# The class shows the main attributes of the sfg object
+class(antwerp_sfg)
+```
+
+LINESTRING and MULTIPOINT have the same structure as each other. The only difference is whether there is a line between the points or not.
+
+```{r linestring_sfg & multipoint_sfg}
+# Create a line between the coordinates of Antwerp and Bremen
+point_matrix <- rbind(c(4.4024643, 51.2194475), c(8.8016936, 53.0792962))
+
+linestring_sfg <- st_linestring(point_matrix)
+multipoint_sfg <- st_multipoint(point_matrix)
+
+st_coordinates(linestring_sfg)
+st_coordinates(multipoint_sfg)
+```
+
+An `sfg` object contains three basic pieces of information. The values for the simple feature are coordinates, which are either, vectors, matrices, or lists. The `sfg` class contains two other classes: the dimensions of the feature and the type of simple feature. Thus, `antwerp_sfg` is an `sfg` object with corrdinates of `c(4.4024643, 51.2194475), with two dimensions (`XY`) and is a simple feature `POINT`. The printing format for `sfg` objects is in the wkt.R document.
+
+```{r}
+# Is antwerp_sfg a simple feature as understood by the sf package?
+st_is_simple(antwerp_sfg)
+
+# What type of simple feature is it?
+st_geometry_type(antwerp_sfg)
+
+# What are the coordinates? Where is this feature to be placed?
+st_coordinates(antwerp_sfg)
+```
+
+## sfc class
+The `sfc` class is what really makes an `sf` object or `sfg` spatial.
+
+```{r sfc-methods}
+methods(class = "sfc")
+```
+
+An `sfc` object is a list of `sfg` objects, which is also able to contain information about the CRS of the object. You can see that `sfc` objects are just lists by using `View()` in RStudio, which shows them as a list. There are `sfc` subclasses for each of the different types of `sfg` objects. An `sfc` object is a list with specific attributes. The `st_sfc()` function creates a list with `list()` of the `sfg` objects from the input, checks for null results and other aspects of the `sfg` aspects, and then adds attributes.
+
+The attributes are `class` for subclass of `sfc`, `precision` (part of simple features definition), `bbox` (which is calculated as noted below), `crs` (also discussed below), and `n_empty` (number of empty sfg objects).
+
+```{r sfc_subclasses}
+getClass("sfc")
+```
+
+A `sfc` object is meant to be a list column in a `sf` data frame object, but it can also be a list of length one. What distinguishes an `sfc` object of length one from an `sfg` object is that an `sfc` object has attributes for CRS. It takes the coordinates and type of feature of the `sfg` object and provides it with a datum or reference for placing the object. You can see that an `sfg` object is the same as an `sfc` object but with no geometry with `st_geometry()`, which returns an `sfc` object. `st_geometry()` on a `sfc` object actually just returns the `sfc` object. 
+
+The correct way to create a `sfc` object from an `sfg` object is with `st_sfc()` and a crs, which by default is set to NA. Setting the crs with an ESPG code sets the `espg` attribute, as well as the `proj4string` attribute, using `st_crs()`. If you set the crs with a proj4string character string, the espg will not necessarily be set. The `st_sfc()` function also calculates a bounding box with `compute_bbox()`, which actually goes back to C code using `Rcpp`.
+
+```{r}
+# st_geometry() on an sfg object returns an sfc object
+st_geometry(antwerp_sfg)
+
+# Make sfc object from sfg object with default crs of NA
+st_sfc(antwerp_sfg, bremen_sfg)
+
+# Show that the two above methods are actually equivalent
+identical(st_geometry(antwerp_sfg), st_sfc(antwerp_sfg))
+
+# Make antwerp_sfg a sfc object with crs of epsg = 4326
+points_sfc <- st_sfc(la_sfg, amsterdam_sfg, crs = 4326)
+```
+
+Can further cofirm that `st_geometry()` returns an object of class `sfc` by showing that the geometry of an `sfc` object is equivalent to the object itself.
+```{r}
+identical(points_sfc, st_geometry(points_sfc))
+```
+
+`points_sfc` is an object of class `sfc_POINT`.
+```{r}
+class(points_sfc)
+```
+
+Printing out the `sfc` object shows the different attributes of this class, which is further demonstrated by showing the attributes. The attributes are about the spatial aspects of the object. They are precision, bbox, crs, and n_empty.
+
+```{r}
+# Print to show attributes of geometry
+points_sfc
+
+# Show attributes of the sfc object
+attributes(points_sfc)
+```
+
+There are a variety of functions to find or set the spatial attributes of an `sfc` object.
+```{r}
+# Precision
+st_precision(points_sfc)
+
+# bounding box
+st_bbox(points_sfc)
+
+# crs
+st_crs(points_sfc)
+```
+
+Can confirm that `points_sfc` is spatial with the `st_distance()` function. In tandem with the Proj or liblwgeom libraries, the function correctly calculates the distance of longitude and latitude values provided a CRS.
+
+```{r distance sfc}
+st_distance(points_sfc)
+```
+
+
+## sf class
+Object of class `sf` is created by combining a data frame of attributes with an `sfc` object.
+
+```{r}
+methods(class = "sf")
+```
+
+Can create a minimal data frame to add to the `sfc` object to create a `sf` object. This is done with `st_sf()`.
+```{r}
+# Create a minimal tibble
+data <- data.frame(place = c("Antwerp", "Bremen"))
+
+# Create sf object by combining tibble with sfc object with sfc column and name that column "geometry"
+points_sf <- st_sf(data, geometry = points_sfc)
+
+# Class of new sf object
+class(points_sf)
+
+# Print new sf object
+points_sf
+```
+
+The `points_sf` object is a culmination of `sfg`, `sfc`, and data frame objects. It is a simple feature of type and coordinates of `points_sfg`. It has the geometry or CRS of `antwerp_sfc`, and it has attributes or fields from the `data` tibble. Anything to do with the CRS or geometry column is the same in `antwerp_sf` as in `antwerp_sfc`. `st_geometry()` with an `sf` object just selects the geometry column, using `obj[[attr(obj, "sf_column")]]`. Removing the `sfc` column or setting the geometry to `NULL` returns a `sf` object to a data frame.
+
+```{r}
+# Geometry of antwerp_sf is equivalent to antwerp_sfc
+identical(st_geometry(points_sf), points_sfc)
+
+# Return sf object to a data frame by setting geometry to NULL
+st_set_geometry(points_sf, NULL)
+
+# Class
+class(st_set_geometry(points_sf, NULL))
+```
+
+Can also create a `sf` object with a data frame that contains coordinate columns with `st_as_sf`, but this will only create POINTS. Internally, the major work of `st_as_sf` is to take coords columns and create a sfc object. crs argument is passed to `st_sf()`, which in turn passes it to `st_crs()`.
+
+```{r sfc from coords}
+# Data frame with coords and assign pieces
+locations <- read_csv("data/locations-1591.csv") %>% 
+  select(place:lat)
+x <- locations
+coords <- c("lon", "lat")
+
+# From st_as_sf.data.frame
+classdim = getClassDim(rep(0, length(coords)), length(coords), dim, "POINT")
+
+structure( lapply(split(as.vector(t(as.matrix(x[, coords]))),
+				rep(seq_len(nrow(x)), each = length(coords))),
+				function(vec) structure(vec, class = classdim)),
+			n_empty = 0L, precision = 0, crs = NA_crs_,
+			bbox = structure(
+				c(xmin = min(x[[coords[1]]], na.rm = TRUE),
+				ymin = min(x[[coords[2]]], na.rm = TRUE),
+				xmax = max(x[[coords[1]]], na.rm = TRUE),
+				ymax = max(x[[coords[2]]], na.rm = TRUE)), class = "bbox"),
+			class =  c("sfc_POINT", "sfc" ))
+```
+
+```{r}
+locations_sf <- st_as_sf(locations, coords = c("lon", "lat"), crs = 4326)
+```
+

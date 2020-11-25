@@ -1,0 +1,136 @@
+---
+title: "Great Circles purrr"
+author: "Jesse Sadler"
+date: "2/28/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document shows different ways to create `sfc_LINESTRING` using `purrr` functions instead of a for loop. There are a couple of different ways. One of the two main ways that I have found uses both `base` and `purrr` functions. The other uses only `purrr`. I will first set up the script and then show the for loop for comparison.
+
+```{r set-up, message = FALSE}
+library(tidyverse)
+library(sf)
+
+letters <- read_csv("data/dvdm-correspondence-1591.csv")
+locations <- read_csv("data/locations-1591.csv") %>% 
+  select(place:lat) # simplify locations data to only necessary variables
+
+routes <- letters %>%
+  group_by(source, destination) %>% 
+  summarise() %>% 
+  drop_na() %>% # remove rows in which source or destination is unknown
+  ungroup()
+```
+
+The method that uses `base` and `purrr` uses an input of latitude and longitude values in a matrix. The `purrr` method uses an input in the form of a data frame. Therefore, I need to make both sources and destinations matrices and data frames.
+
+```{r source and destination data}
+# data frames
+sources_tbl <- routes %>% 
+  left_join(locations, by = c("source" = "place")) %>% 
+  select(lon:lat)
+destinations_tbl <- routes %>% 
+  left_join(locations, by = c("destination" = "place")) %>% 
+  select(lon:lat)
+
+# matrices
+sources_m <- routes %>% 
+  left_join(locations, by = c("source" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+destinations_m <- routes %>% 
+  left_join(locations, by = c("destination" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+```
+
+## For loop
+The for loop method is probably the most straightforward in the it transparently vectorizes creating a LINESTRING, creating a list of LINESTRING sfg objects, which can then be turned into an sfc_LINESTRING object with `st_sfc()`.
+
+```{r for loop linestring}
+linestrings_sfg <- vector("list", nrow(routes))
+
+for (i in 1:nrow(routes)) {
+  linestrings_sfg[[i]] <- st_linestring(rbind(sources_m[i, ], destinations_m[i, ]))
+}
+
+linestrings_sfc <- st_sfc(linestrings_sfg, crs = 4326)
+```
+
+## Method 1: Separate source and destinations
+The first method uses `base::split` to split the rows of the source and destination matrices into lists, which can then be put into the correct format of a 2x2 matrix with `purrr::map`. This can be done with sources and destinations as separate matrices or column binded into a single matrix. First, I will show it done as separate matrices, which necessitates the use of `purrr::map2()`.
+
+```{r method 1}
+# split matrices to create list of length equal to nrow sources_m
+sources_list <- split(sources_m, seq(nrow(sources_m)))
+destinations_list <- split(destinations_m, seq(nrow(destinations_m)))
+
+# Bind rows of the lists
+map2_list <- map2(sources_list, destinations_list, rbind)
+# Need to use map to apply st_linestring on each item of the list
+map2_sfg <- map(map2_list, st_linestring)
+
+# sfc object
+map2_sfc <- st_sfc(map2_sfg, crs = 4326)
+```
+
+## Method 2: column bound sources and destinations
+This method is the same as method 1, but it begins by column binding the sources and destinations matrices, so that you do not need to use `map2`.
+
+```{r method 2}
+# Bind the columns
+bound_m <- cbind(sources_m, destinations_m)
+
+# Split into list of 1x4 matrix
+bound_split <- split(bound_m, seq(nrow(bound_m)))
+# Modify 1x4 matrix to 2x2, byrow gives columns of lon and lat
+bound_list <- map(bound_split, ~ matrix(., nrow = 2, byrow = TRUE))
+# Same need to use map to apply st_linestring on each item of the list
+bound_sfg <- map(bound_list, st_linestring)
+
+# sfc object
+bound_sfc <- st_sfc(bound_sfg, crs = 4326)
+```
+
+## Method 3: pure `purrr`
+The third method uses all `purrr` functions to do the same basic workflow as above. In the place of `split()` this method uses `transpose()`, which takes a data frame and creates a list of each row with a list of each column. Because `transpose()` creates a list of lists instead of a list of matrices, you need to `flatten()` on the second level list and create a properly formatted matrix, both of which can be done within a `map()` function. This method needs a data frame as an input, because `transpose()` does not work with matrices.
+
+The only difference between this method and the first two as far as output is that the first two methods name the lists with integers, whereas `transpose()` does not name the vectors.
+
+```{r method 3}
+# bind columns in sources and destinations tibbles
+bound_tbl <- bind_cols(sources_tbl, destinations_tbl)
+
+# Turn bound_tbl into a list of rows with a list of columns
+trans <- transpose(bound_tbl)
+
+# Flatten second-level list into vectors and create matrices
+trans_list <- map(trans, ~ matrix(flatten_dbl(.), nrow = 2, byrow = TRUE))
+
+# Same need to use map to apply st_linestring on each item of the list
+trans_sfg <- map(trans_list, st_linestring)
+
+# sfc object
+trans_sfc <- st_sfc(trans_sfg, crs = 4326)
+```
+
+Methods 2 and 3 are pipeable
+
+```{r}
+method2_sfc <- bound_m %>% 
+  split(seq(nrow(bound_m))) %>% 
+  map(~ matrix(., nrow = 2, byrow = TRUE)) %>% 
+  map(st_linestring) %>% 
+  st_sfc(crs = 4326)
+
+method3_sfc <- bound_tbl %>% 
+  transpose() %>% 
+  map(~ matrix(flatten_dbl(.), nrow = 2, byrow = TRUE)) %>% 
+  map(st_linestring) %>% 
+  st_sfc(crs = 4326)
+```
+

@@ -1,0 +1,116 @@
+---
+title: "Distances and CRS"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script looks at the difference between distance in two ways. First, it shows the difference between `st_distance()` from `sf` and `distGeo()` from `sp`. The second is to look at the difference between these two that use geographical coordinate systems and different projections that are centered on Europe such as 3035 and 3034.
+
+According to the details of `sf` from version 0.6, great circle distance calculations use function `geod_inverse` from proj.4 if proj.4 is at version larger than 4.8.0, or else the Vincenty method implemented in `liblwgeom` (this should correspond to what PostGIS does). On the change from `geosphere` to the use of `lwgeom` see http://r-spatial.org/r/2018/01/08/sf-0.6-0.html#spherical-geometry.
+
+```{r message = FALSE}
+library(tidyverse)
+library(sf)
+library(geosphere)
+library(units)
+
+letters <- read_csv("data/dvdm-correspondence-1591.csv")
+locations <- read_csv("data/locations-1591.csv") %>% 
+  select(place:lat)
+```
+
+## lwgeom compared to geosphere
+To get the distance between points using `sp` and `sf` in the same format of a distance matrix, you need a matrix of points for `distGeo()` and to create a linestring `sf` object to use `st_length()`
+
+```{r}
+routes <- letters %>%
+  group_by(source, destination) %>% 
+  summarise() %>% 
+  drop_na() %>% 
+  ungroup()
+```
+
+```{r}
+sources <- routes %>% 
+  left_join(locations, by = c("source" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+
+destinations <- routes %>% 
+  left_join(locations, by = c("destination" = "place")) %>% 
+  select(lon:lat) %>% 
+  as.matrix()
+```
+
+geosphere has two main different distance functions. `distGeo()` is very accurate and uses the WGS84 ellipsoid. However, `gcIntermediate()` uses the `distCosine()` function, which uses a spherical model of the earth.
+
+```{r}
+distance_sp <- distGeo(sources, destinations) %>% set_units(m)
+distance_gcIntermediate <- distCosine(sources, destinations) %>% units::set_units(m)
+```
+
+Use of `st_length()` is more difficult, because you first need to convert to linestring
+
+```{r for loop}
+linestrings_sfg <- vector("list", nrow(routes))
+
+for (i in 1:nrow(routes)) {
+  linestrings_sfg[[i]] <- st_linestring(rbind(sources[i, ], destinations[i, ]))
+}
+
+lines_4326 <- st_sfc(linestrings_sfg, crs = 4326)
+```
+
+Don't need to make great circles to use the `st_length()` function.
+
+```{r}
+distance_sf <- st_length(lines_4326)
+```
+
+The distances for `distGeo()` and `st_distance()` are basically the same. There are very small, inconsequential differences. The difference between `gcIntermediate()` or `distCosine()` and `st_distance()` are more substantial, with a maximum difference of 1.5km.
+
+```{r}
+# distGeo and st_distance are the same
+round((distance_sf - distance_sp), digits = 3)
+# gcIntermediate or distCosine is different from st_distance
+round((distance_sf - distance_gcIntermediate), digits = 3)
+```
+
+
+## Spherical measurement compared to projections
+
+Change to projected CRS and create distance matrix. With projected reference systems the distances are simply done by drawing a straight line between the coordinates with no convoluted geometry. The geometric calculations are all done within the projection.
+
+### EPSG 3035: Lambert Azimuthal Equal Area
+```{r}
+lines_3035 <- st_transform(lines_4326, crs = 3035)
+
+distance_3035 <- st_length(lines_3035)
+
+distance_3035
+```
+
+### EPSG 3034: Lambert Conformal Conic
+```{r}
+lines_3034 <- st_transform(lines_4326, crs = 3034)
+
+distance_3034 <- st_length(lines_3034)
+
+distance_3034
+```
+
+## Compare the distances
+
+Distances compared in kilometers and then rounded for two digits for ease of looking.
+```{r}
+# 4326 compared to 3035
+(distance_sf - distance_3035) %>% set_units(km) %>% round(digits = 2)
+
+# 4326 compared to 3034
+(distance_sf - distance_3034) %>% set_units(km) %>% round(digits = 2)
+```
+
+This shows that the differences between great circle distance and EPSG 3035 is not very large, but the differences with EPSG 3034 are much bigger. This can be seen especially with the differences from Naples, which is row and column seven.
