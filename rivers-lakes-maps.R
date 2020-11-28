@@ -48,7 +48,7 @@ europe_bbox <- st_bbox(c(xmin = -11, xmax = 24,
 
 rivers_europe <- st_intersection(rivers, europe_bbox) %>% 
   filter(featurecla != "Lake Centerline") %>% 
-  select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
+  dplyr::select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
   mutate(label = if_else(scalerank < 5, name_en, NA_character_),
          length = st_length(geometry)) %>% 
   arrange(desc(length))
@@ -65,7 +65,7 @@ rivers_main$label[duplicated(rivers_main$label)] <- NA
 
 lakes_europe <- st_intersection(lakes, europe_bbox) %>% 
   filter(!is.na(name)) %>% 
-  select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
+  dplyr::select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
 
 
 ggplot() + 
@@ -125,12 +125,12 @@ names(elev_df) <- c("lng", "lat", "alt")
 # White ocean
 ggplot() +
   geom_raster(data = elev_df, aes(lng, lat, fill = alt), alpha = 0.6) +
-  scale_fill_gradientn(colors = gray.colors(50), start = 0.5) + 
+  scale_fill_gradientn(colors = gray.colors(50, start = 0.5)) + 
   geom_sf(data = oceans, color = NA, fill = gray(1)) + # Need water
   geom_sf(data = rivers, color = gray(1)) + 
   geom_sf(data = lakes_europe, color = NA, fill = gray(1)) + 
   # Western Europe: same as europe_bbox
-  geom_point(data = cities_df, aes(x = oc_lng, y = oc_lat)) + 
+  geom_point(data = cities_df, aes(x = oc_lng, y = oc_lat), size = 0.5) + 
   geom_text_repel(data = cities_df, 
                   aes(x = oc_lng, y = oc_lat, label = placename),
                   size = 2) +
@@ -155,7 +155,8 @@ ggplot() +
   theme_void() + 
   theme(legend.position = "none")
 
-ggsave(paste0("img/elevation-map-", lubridate::today(), ".pdf"))
+ggsave(paste0("img/elevation-map-", lubridate::today(), ".png"))
+
 
 # Low Countries -----------------------------------------------------------
 
@@ -166,14 +167,14 @@ lowcountries_bbox <- st_bbox(c(xmin = -2, xmax = 8,
 
 rivers_lc <- st_intersection(rivers, lowcountries_bbox) %>% 
   filter(featurecla != "Lake Centerline") %>% 
-  select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
+  dplyr::select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
   mutate(length = st_length(geometry)) %>% # Used to get correct placement of Maas
   arrange(desc(length))
 
 rivers_lc$name_en[duplicated(rivers_lc$name_en)] <- NA
 
 lakes_lc <- st_intersection(lakes, lowcountries_bbox) %>% 
-  select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
+  dplyr::select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
 
 ggplot() + 
   geom_sf(data = countries, fill = gray(1), color = gray(1)) + 
