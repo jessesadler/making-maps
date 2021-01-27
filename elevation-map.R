@@ -10,6 +10,7 @@ library(tidyverse)
 # - Natural Earth gray shaded relief: https://www.naturalearthdata.com/downloads/10m-raster-data/10m-shaded-relief/
 # - General Bathymetric Chart of the Oceans (GEBCO): https://www.gebco.net
 # - SRTM data: http://srtm.csi.cgiar.org
+# - GADM data: https://gadm.org/index.html
 
 # Download elevation data
 elev_raster <- raster("data-raw/SR_HR/SR_HR.tif")

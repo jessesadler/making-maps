@@ -67,7 +67,7 @@ ggplot() +
   geom_sf(data = cities_proj, size = 0.5) + 
   geom_text_repel(data = cities_proj, 
                   aes(x = lng, y = lat, label = placename),
-                  size = 2) +
+                  size = 3) +
   coord_sf(xlim = c(bounds[1], bounds[3]),
            ylim = c(bounds[2], bounds[4]),
            expand = FALSE, datum = NA) + 
