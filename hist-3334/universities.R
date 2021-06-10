@@ -7,7 +7,6 @@ library(opencage)
 library(ggrepel)
 
 # Load data ---------------------------------------------------------------
-# All data is st_crs(4326)
 
 rivers <- st_read("data-raw/ne_10m_rivers_lake_centerlines/ne_10m_rivers_lake_centerlines.shp")
 lakes <-  st_read("data-raw/ne_10m_lakes/ne_10m_lakes.shp")
@@ -35,7 +34,7 @@ cities_1300_df <- oc_forward_df(placename = cities_1300,
 cities_1400_df <- oc_forward_df(placename = cities_1400,
                                 bounds = oc_bbox(-11, 34, 24, 58))
 
-# Change CRS --------------------------------------------------------------
+# Transform CRS -----------------------------------------------------------
 
 set_crs <- st_crs(3034)
 
