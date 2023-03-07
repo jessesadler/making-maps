@@ -2,4 +2,11 @@
 .RData
 .Rproj.user
 data-raw/
+data-clean/
 img/martin-guerre-gif/
+env/
+img/gcnp_fully_annotated.png
+img/gcnp_highres.png
+*.html
+*_files/
+tmap_style_previews/
