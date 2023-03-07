@@ -1,0 +1,113 @@
+---
+title: "terra"
+format: html
+---
+
+## Resources
+- [terra](https://rspatial.org/terra)
+- [Geocomputation with R](https://geocompr.robinlovelace.net/index.html)
+
+```{r}
+#| label: load-terra
+library(terra)
+```
+
+## Geocomputation with R
+
+### 3.3 Manipulating raster objects
+
+Creating raster objects
+
+```{r}
+#| label: elev-raster
+
+elev <- rast(nrows = 6, ncols = 6, resolution = 0.5, 
+             xmin = -1.5, xmax = 1.5, ymin = -1.5, ymax = 1.5,
+             vals = 1:36, names = "elev")
+elev
+```
+
+Raster objects with categorical data that can be either `logical` or `factor`.
+
+```{r}
+#| label: grain-raster
+
+grain_order <- c("clay", "silt", "sand")
+grain_char <- sample(grain_order, 36, replace = TRUE)
+grain_fact <- factor(grain_char, levels = grain_order)
+grain <- rast(nrows = 6, ncols = 6, resolution = 0.5, 
+              xmin = -1.5, xmax = 1.5, ymin = -1.5, ymax = 1.5,
+              vals = grain_fact)
+```
+
+The Raster Attribute Tables (RAT) are stored as a list of dataframes. They can be viewed with `cats()`.
+Use the function `levels()` for retrieving and adding new or replacing existing factor levels.
+
+```{r}
+#| label: levels
+
+cats(grain)
+levels(grain) <- data.frame(value = c(0, 1, 2), wetness = c("wet", "moist", "dry"))
+levels(grain)
+```
+
+### 4.3 Spatial operations on raster data
+
+#### Subsetting
+
+```{r}
+#| label: subsetting
+clip <- rast(xmin = 0.9, xmax = 1.8, ymin = -0.45, ymax = 0.45,
+             resolution = 0.3, vals = rep(1, 9))
+elev[clip]
+
+#or
+terra::extract(elev, ext(clip))
+```
+
+```{r}
+#| label: spatial-subsetting
+
+elev[clip, drop = FALSE]
+
+# create raster mask
+rmask <- elev
+values(rmask) <- sample(c(NA, TRUE), 36, replace = TRUE)
+
+elev[rmask, drop = FALSE]
+mask(elev, rmask)  
+
+plot(mask(elev, rmask))
+```
+
+#### Map algebra
+
+Local map algebra: Per-cell operations. One example is reclassifying data by a matrix with low, high, and new value columns.
+
+```{r}
+#| label: reclassify-data
+
+# reclassifying matrix
+rcl <- matrix(c(0, 12, 1, 12, 24, 2, 24, 36, 3), ncol = 3, byrow = TRUE)
+recl <- classify(elev, rcl = rcl)
+
+plot(recl)
+```
+
+Focal map algebra: applies an aggregation function to all cells within the specified neighborhood and assigns output to central cell.
+
+```{r}
+#| label: focal
+
+r_focal <- focal(elev, w = matrix(1, nrow = 3, ncol = 3), fun = min)
+values(r_focal)
+```
+
+Zonal map algebra
+
+```{r}
+#| label: zonal
+
+zonal(elev, grain, fun = "mean")
+```
+
