@@ -5,18 +5,20 @@ library(rnaturalearth)
 library(tidyverse)
 library(raster)
 
-# Get the data ------------------------------------------------------------
+# Load the data -----------------------------------------------------------
+# See rnaturalearth-data.R on downloading the data.
 
-# Need to have rnaturalearthhires for high resolution data
-coastlines <- ne_coastline(scale = 10, returnclass = "sf")
-countries <- ne_countries(scale = 10, returnclass = "sf")
+coastlines <- st_read("data-raw/ne_coastline/ne_10m_coastline.shp")
+countries <- st_read("data-raw/ne_lakes/ne_10m_lakes.shp")
+land <- st_read("data-raw/ne_land/ne_10m_land.shp")
+rivers <- st_read("data-raw/ne_rivers_lake_centerlines/ne_10m_rivers_lake_centerlines.shp")
+lakes <-  st_read("data-raw/ne_lakes/ne_10m_lakes.shp")
+oceans <- st_read("data-raw/ne_ocean/ne_10m_ocean.shp")
 
-# ne_download not() working
-rivers <- st_read("data-raw/ne_10m_rivers_lake_centerlines/ne_10m_rivers_lake_centerlines.shp")
-lakes <-  st_read("data-raw/ne_10m_lakes/ne_10m_lakes.shp")
-oceans <- st_read("data-raw/ne_10m_ocean/ne_10m_ocean.shp")
 
-## Make a plot with coastlines
+# Coastline and countries plots -------------------------------------------
+
+# Make a plot with coastlines
 ggplot() + 
   geom_sf(data = coastlines, color = gray(0.3)) + 
   geom_sf(data = rivers, color = gray(0.7)) + 
@@ -25,9 +27,9 @@ ggplot() +
   theme_void()
 
 
-# Make a plot with countries with gray background
+# Make a plot with land with gray background
 ggplot() + 
-  geom_sf(data = countries, fill = gray(1), color = gray(1)) + 
+  geom_sf(data = land, fill = gray(1), color = gray(1)) + 
   geom_sf(data = rivers, color = gray(0.8)) + 
   geom_sf(data = lakes, fill = gray(0.8), color = gray(0.8)) + 
   coord_sf(xlim = c(-11, 24), ylim = c(34, 58), expand = FALSE, datum = NA) + # Western Europe
@@ -40,7 +42,7 @@ ggplot() +
 # Make map of main rivers -------------------------------------------------
 
 # Create bounding box
-# Change this to change 
+# Change this to change size of map
 europe_bbox <- st_bbox(c(xmin = -11, xmax = 24,
                   ymin = 34, ymax = 58),
                 crs = st_crs(4326)) %>% 
@@ -48,7 +50,7 @@ europe_bbox <- st_bbox(c(xmin = -11, xmax = 24,
 
 rivers_europe <- st_intersection(rivers, europe_bbox) %>% 
   filter(featurecla != "Lake Centerline") %>% 
-  dplyr::select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
+  dplyr::select(name, name_en, scalerank, ne_id, geometry) %>% 
   mutate(label = if_else(scalerank < 5, name_en, NA_character_),
          length = st_length(geometry)) %>% 
   arrange(desc(length))
@@ -65,7 +67,7 @@ rivers_main$label[duplicated(rivers_main$label)] <- NA
 
 lakes_europe <- st_intersection(lakes, europe_bbox) %>% 
   filter(!is.na(name)) %>% 
-  dplyr::select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
+  dplyr::select(name, featurecla, name_en, scalerank, ne_id, geometry)
 
 
 ggplot() + 
@@ -167,14 +169,14 @@ lowcountries_bbox <- st_bbox(c(xmin = -2, xmax = 8,
 
 rivers_lc <- st_intersection(rivers, lowcountries_bbox) %>% 
   filter(featurecla != "Lake Centerline") %>% 
-  dplyr::select(name, name_en, scalerank, wdid_score, ne_id, geometry) %>% 
+  dplyr::select(name, name_en, scalerank, ne_id, geometry) %>% 
   mutate(length = st_length(geometry)) %>% # Used to get correct placement of Maas
   arrange(desc(length))
 
 rivers_lc$name_en[duplicated(rivers_lc$name_en)] <- NA
 
 lakes_lc <- st_intersection(lakes, lowcountries_bbox) %>% 
-  dplyr::select(name, featurecla, name_en, scalerank, wdid_score, ne_id, geometry)
+  dplyr::select(name, featurecla, name_en, scalerank, ne_id, geometry)
 
 ggplot() + 
   geom_sf(data = countries, fill = gray(1), color = gray(1)) + 
