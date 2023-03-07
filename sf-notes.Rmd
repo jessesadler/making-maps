@@ -12,10 +12,10 @@ library(sf)
 ```
 
 - Resources
-	- [sf vignettes](https://cran.rstudio.com/web/packages/sf/vignettes/sf1.html)
-	- [Lovelace, Nowosad, and Muenchow, Geocomputation with R – Chapter 2](https://geocompr.robinlovelace.net/spatial-class.html#vector-data)
-	- [Pebesma, Spatial Data in R: New Directions](https://edzer.github.io/UseR2017/)
-	- [Claudia Engel, Introduction to Spatial Data Types in R](https://cengel.github.io/rspatial/2_spDataTypes.nb.html#)
+	  - [sf vignettes](https://cran.rstudio.com/web/packages/sf/vignettes/sf1.html)
+	  - [Lovelace, Nowosad, and Muenchow, Geocomputation with R – Chapter 2](https://geocompr.robinlovelace.net/spatial-class.html#vector-data)
+	  - [Pebesma, Spatial Data in R: New Directions](https://edzer.github.io/UseR2017/)
+	  - [Claudia Engel, Introduction to Spatial Data Types in R](https://cengel.github.io/rspatial/2_spDataTypes.nb.html#)
 
 ## Simple Features
 - Simple Features: "A simple feature is defined by the OpenGIS Abstract specification to have both spatial and non-spatial attributes. Spatial attributes are geometry valued, and simple features are based on 2D geometry with linear interpolation between vertices."

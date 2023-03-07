@@ -1,0 +1,94 @@
+---
+title: "sf: Binary predicate functions"
+format: html
+---
+
+```{r}
+#| label: load-packages
+library(sf)
+```
+
+## Resources
+
+- [Spatial Data Science - Binary Predicates](https://r-spatial.org/book/03-Geometries.html#sec-de9im)
+- [Geocomputation with R - Topological Relations](https://geocompr.robinlovelace.net/spatial-operations.html#topological-relations)
+- `sf` [vignette on geometric operations](https://r-spatial.github.io/sf/articles/sf3.html#geometrical-operations)
+
+## Geocomputation with R - Topological Relations
+
+This follows the examples in *Geocomputation with R* Chapter 4.2.2
+
+```{r}
+#| label: build-features
+
+# Polygon
+polygon_matrix <- cbind(
+  x = c(0, 0, 1, 1,   0),
+  y = c(0, 1, 1, 0.5, 0)
+)
+polygon_sfc <- st_sfc(st_polygon(list(polygon_matrix)))
+
+# line
+line_sfc <- st_sfc(st_linestring(cbind(
+  x = c(0.4, 1),
+  y = c(0.2, 0.5)
+)))
+
+# points
+point_df <- data.frame(
+  x = c(0.2, 0.7, 0.4),
+  y = c(0.1, 0.2, 0.8)
+)
+point_sf <- st_as_sf(point_df, coords = c("x", "y"))
+```
+
+```{r}
+#| label: plot
+
+par(pty = "s")
+plot(polygon_sfc, border = "red", col = "gray", axes = TRUE)
+plot(line_sfc, lwd = 5, add = TRUE)
+plot(point_sf, add = TRUE, lab = 1:4, cex = 2)
+text(point_df[, 1] + 0.03, point_df[, 2] + 0.05, 1:3, cex = 1.3)
+```
+
+### st_intersects
+
+Where do the points intersect with the polygon? The result is a a `sgbp` object (a sparse geometry binary predicate). The result is a list of vectors that are either empty (`FALSE`) or have a length of the number of matching features (`TRUE`).
+
+```{r}
+#| label: st_intersects-sparse
+st_intersects(point_sf, polygon_sfc)
+```
+
+Setting `sparse = FALSE` returns a dense matrix. Each row represents a feature in the target (argument `x`) object and each column represents a feature in the selecting object (`y`).
+
+```{r}
+#| label: st_intersects-dense
+st_intersects(point_sf, polygon_sfc, sparse = FALSE)
+```
+
+### st_within and st_touches
+
+More restrictive predicates.
+
+```{r}
+#| label: more-restrictive
+st_within(point_sf, polygon_sfc)
+st_touches(point_sf, polygon_sfc)
+```
+
+### st_disjoint
+Opposite of `st_intersects()` is `st_disjoint()`:
+
+```{r}
+#| label: st_disjoint
+st_disjoint(point_sf, polygon_sfc, sparse = FALSE)[, 1]
+```
+
+### st_within_distance
+
+```{r}
+#| label: st_within_distance
+st_is_within_distance(point_sf, polygon_sfc, dist = 0.2)
+```
